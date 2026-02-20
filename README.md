@@ -44,9 +44,26 @@ Open `frontend/index.html` in a browser (or serve it using any static server).
 3. Vercel will auto-detect `vercel.json` and deploy:
    - Static frontend from `frontend/`
    - Python API from `api/app.py` (`/api/chat`, `/api/health`)
+   - Python dependencies from `api/requirements.txt`
 4. After deploy, open your Vercel URL and chat with the assistant.
 
 > Frontend uses `http://localhost:5000/chat` in local mode and automatically switches to `/api/chat` in production.
+
+
+## 🔧 Vercel 404 (NOT_FOUND) Fix
+
+If you see `404: NOT_FOUND`, make sure:
+
+1. `vercel.json` exists in the repo root (this project already includes it).
+2. Your Vercel **Root Directory** is set to the repository root (`CustomerCare-ChatBot`).
+3. You redeploy after pulling the latest commit (rewrites are required for `/` and `/api/*`).
+
+If you saw `Function Runtimes must have a valid version`, this repo now uses Vercel `builds/routes` instead of `functions.runtime` to avoid that error.
+
+This repo now routes:
+- `/` → `frontend/index.html`
+- `/<asset>` → `frontend/<asset>`
+- `/api/*` → `api/app.py`
 
 ## 🌟 Features
 
