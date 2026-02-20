@@ -18,8 +18,8 @@ function clearChat() {
     chatMessages.innerHTML = `
         <div class="message bot-message">
             <div class="message-content">
-                Hello! 👋 I'm your BizzHub assistant.<br><br>
-                I can help you find the perfect workspace, check pricing, or schedule a visit. How can I help you today?
+                Hello! 👋 I'm your AI-powered e-commerce invoice assistant.<br><br>
+                I can generate invoices, validate missing fields, and suggest what to add before checkout.
             </div>
             <span class="timestamp">Just now</span>
         </div>
