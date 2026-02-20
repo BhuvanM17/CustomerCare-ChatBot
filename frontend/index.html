@@ -1,91 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI-Powered E-Commerce Invoice Assistant</title>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Invoice Assistant - React</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <!-- Remixe Icons -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
 </head>
+
 <body>
-    <div class="background-blobs">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-        <div class="blob blob-3"></div>
-    </div>
-
-    <div class="main-container">
-        <!-- Sidebar / Info Panel (Desktop only) -->
-        <div class="info-panel glass-effect">
-            <div class="brand">
-                <div class="logo-icon"><i class="ri-file-list-3-line"></i></div>
-                <h1>Invoice AI</h1>
-            </div>
-            
-            <div class="info-content">
-                <h3>Smarter invoices for every online order.</h3>
-                <p>Ask me to generate invoices, validate fields, and calculate totals:</p>
-                <div class="tags">
-                    <span class="tag" onclick="sendQuickMessage('Generate invoice: invoice number: INV-1001, customer: Alex, email: alex@shop.com, 2x Sneakers @ 2499, tax: 18, shipping: 99')"><i class="ri-file-chart-line"></i> Generate Invoice</span>
-                    <span class="tag" onclick="sendQuickMessage('Validate invoice fields: customer: Alex, 1x Hoodie @ 1299')"><i class="ri-check-double-line"></i> Validate Fields</span>
-                    <span class="tag" onclick="sendQuickMessage('Create invoice: invoice number: INV-1002, customer: Priya, email: priya@shop.com, 3x T-shirt @ 799, discount: 100')"><i class="ri-shopping-bag-3-line"></i> E-Commerce Items</span>
-                    <span class="tag" onclick="sendQuickMessage('What details are required to generate an invoice?')"><i class="ri-question-answer-line"></i> Required Fields</span>
-                </div>
-            </div>
-
-            <div class="contact-mini">
-                <i class="ri-customer-service-2-line"></i>
-                <div>
-                    <small>Need billing support?</small>
-                    <p>billing@invoiceai.com</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Chat Interface -->
-        <div class="chat-container glass-effect">
-            <div class="chat-header">
-                <div class="avatar-container">
-                    <div class="avatar">
-                        <i class="ri-robot-2-line"></i>
-                        <span class="status-dot"></span>
-                    </div>
-                    <div class="avatar-info">
-                        <h2>Assistant</h2>
-                        <span class="status-text">Online • Reply time < 1s</span>
-                    </div>
-                </div>
-                <button class="clear-btn" onclick="clearChat()" title="Start New Chat">
-                    <i class="ri-refresh-line"></i>
-                </button>
-            </div>
-
-            <div class="chat-messages" id="chatMessages">
-                <!-- Welcome Message -->
-                <div class="message bot-message">
-                    <div class="message-content">
-                        Hello! 👋 I'm your AI-powered e-commerce invoice assistant.<br><br>
-                        I can generate invoices, validate missing fields, and suggest what to add before checkout.
-                    </div>
-                    <span class="timestamp">Just now</span>
-                </div>
-            </div>
-
-            <div class="chat-input-area">
-                <form id="chatForm" onsubmit="handleChatSubmit(event)">
-                    <input type="text" id="userInput" placeholder="Type your message..." autocomplete="off">
-                    <button type="submit" id="sendBtn">
-                        <i class="ri-send-plane-fill"></i>
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- Markdown Parser (Simple) -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="script.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
 </body>
+
 </html>

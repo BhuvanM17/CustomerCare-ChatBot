@@ -1,8 +1,19 @@
+import os
 import re
-from dataclasses import dataclass, field
+import json
+import uuid
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+import google.generativeai as genai
+from dotenv import load_dotenv
 
+load_dotenv()
+
+# Configure Gemini
+api_key = os.getenv("GOOGLE_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
 @dataclass
 class InvoiceItem:
@@ -14,178 +25,208 @@ class InvoiceItem:
     def line_total(self) -> float:
         return round(self.quantity * self.unit_price, 2)
 
-
 @dataclass
 class InvoiceDraft:
+    invoice_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     invoice_number: Optional[str] = None
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None
+    customer_gst: Optional[str] = None
     invoice_date: Optional[str] = None
     due_date: Optional[str] = None
     currency: str = "INR"
-    tax_percent: float = 0.0
+    tax_percent: float = 18.0  # Default GST for many items
     shipping_fee: float = 0.0
     discount: float = 0.0
+    discount_code: Optional[str] = None
     items: List[InvoiceItem] = field(default_factory=list)
 
+    def to_dict(self):
+        d = asdict(self)
+        d['subtotal'] = round(sum(item.line_total for item in self.items), 2)
+        d['tax_amount'] = round(d['subtotal'] * (self.tax_percent / 100), 2)
+        d['grand_total'] = round(d['subtotal'] + d['tax_amount'] + self.shipping_fee - self.discount, 2)
+        return d
+
+class SessionManager:
+    def __init__(self):
+        self.sessions: Dict[str, InvoiceDraft] = {}
+
+    def get_draft(self, session_id: str) -> InvoiceDraft:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = InvoiceDraft()
+        return self.sessions[session_id]
+
+    def clear_session(self, session_id: str):
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+
+class InvoiceStorage:
+    def __init__(self, storage_path: str):
+        self.storage_path = storage_path
+        os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
+
+    def _load_invoices(self) -> List[Dict[str, Any]]:
+        if os.path.exists(self.storage_path):
+            try:
+                with open(self.storage_path, "r") as f:
+                    return json.load(f)
+            except: pass
+        return []
+
+    def save_invoice(self, draft: InvoiceDraft):
+        invoices = self._load_invoices()
+        invoices.append(draft.to_dict())
+        with open(self.storage_path, "w") as f:
+            json.dump(invoices, f, indent=4)
+        return draft.invoice_id
 
 class InvoiceParser:
-    """Extract invoice fields from natural language + lightweight templates."""
+    def __init__(self, model_name="gemini-2.5-flash"):
+        self.model = genai.GenerativeModel(model_name)
 
-    FIELD_PATTERNS = {
-        "invoice_number": r"(?:invoice\s*(?:number|#)\s*[:=-]\s*)([\w\-/]+)",
-        "customer_name": r"(?:customer|client|buyer)\s*(?:name)?\s*[:=-]\s*([^,;\n]+)",
-        "customer_email": r"(?:email|mail)\s*[:=-]\s*([\w\.-]+@[\w\.-]+\.\w+)",
-        "invoice_date": r"(?:invoice\s*date|date)\s*[:=-]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})",
-        "due_date": r"(?:due\s*date|due)\s*[:=-]\s*([0-9]{4}-[0-9]{2}-[0-9]{2})",
-        "currency": r"(?:currency)\s*[:=-]\s*([A-Za-z]{3})",
-        "tax_percent": r"(?:tax|gst|vat)\s*[:=-]?\s*([0-9]+(?:\.[0-9]+)?)%?",
-        "shipping_fee": r"(?:shipping|delivery)\s*(?:fee|charge|cost)?\s*[:=-]?\s*([0-9]+(?:\.[0-9]+)?)",
-        "discount": r"(?:discount)\s*[:=-]?\s*([0-9]+(?:\.[0-9]+)?)",
-    }
-
-    ITEM_PATTERN = re.compile(
-        r"(?P<qty>[0-9]+(?:\.[0-9]+)?)\s*x\s*(?P<name>[A-Za-z0-9\-\s]+?)\s*@\s*(?P<price>[0-9]+(?:\.[0-9]+)?)",
-        re.IGNORECASE,
-    )
-
-    def parse(self, text: str) -> InvoiceDraft:
-        draft = InvoiceDraft()
-
-        for field_name, pattern in self.FIELD_PATTERNS.items():
-            match = re.search(pattern, text, re.IGNORECASE)
-            if not match:
-                continue
-            value = match.group(1).strip()
-            if field_name in {"tax_percent", "shipping_fee", "discount"}:
-                setattr(draft, field_name, float(value))
-            elif field_name == "currency":
-                draft.currency = value.upper()
-            else:
-                setattr(draft, field_name, value)
-
-        for item_match in self.ITEM_PATTERN.finditer(text):
-            draft.items.append(
-                InvoiceItem(
-                    name=item_match.group("name").strip(),
-                    quantity=float(item_match.group("qty")),
-                    unit_price=float(item_match.group("price")),
-                )
-            )
-
-        if not draft.invoice_date:
-            draft.invoice_date = datetime.now().strftime("%Y-%m-%d")
-        if not draft.due_date:
-            draft.due_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
-
+    def update_draft(self, draft: InvoiceDraft, text: str) -> InvoiceDraft:
+        current_data = draft.to_dict()
+        prompt = f"""
+        You are an AI assistant that extracts invoice details. 
+        Update the current invoice data with new information from the user's text.
+        
+        Current Data: {json.dumps(current_data)}
+        User Text: "{text}"
+        
+        RULES:
+        1. If user provides a name, update 'customer_name'.
+        2. If user provides an email, update 'customer_email'.
+        3. If items are mentioned, ADD them to the existing items list or update them.
+        4. If GST/Tax is mentioned, update 'customer_gst' or 'tax_percent'.
+        5. If a discount/offer/coupon is mentioned, update 'discount_code' or 'discount'.
+        6. Return ONLY the complete updated JSON object matching the structure below.
+        
+        JSON Structure:
+        {{
+            "invoice_number": string,
+            "customer_name": string,
+            "customer_email": string,
+            "customer_gst": string,
+            "currency": string,
+            "tax_percent": number,
+            "shipping_fee": number,
+            "discount": number,
+            "discount_code": string,
+            "items": [
+                {{"name": string, "quantity": number, "unit_price": number}}
+            ]
+        }}
+        """
+        try:
+            response = self.model.generate_content(prompt)
+            match = re.search(r'\{.*\}', response.text, re.DOTALL)
+            if match:
+                data = json.loads(match.group())
+                if 'items' in data:
+                    draft.items = [InvoiceItem(**item) for item in data['items']]
+                draft.invoice_number = data.get('invoice_number', draft.invoice_number)
+                draft.customer_name = data.get('customer_name', draft.customer_name)
+                draft.customer_email = data.get('customer_email', draft.customer_email)
+                draft.customer_gst = data.get('customer_gst', draft.customer_gst)
+                draft.tax_percent = data.get('tax_percent', draft.tax_percent)
+                draft.shipping_fee = data.get('shipping_fee', draft.shipping_fee)
+                draft.discount = data.get('discount', draft.discount)
+                draft.discount_code = data.get('discount_code', draft.discount_code)
+                
+                if not draft.invoice_date:
+                    draft.invoice_date = datetime.now().strftime("%Y-%m-%d")
+                if not draft.due_date:
+                    draft.due_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+        except Exception as e:
+            print(f"Error parsing: {e}")
         return draft
 
-
 class InvoiceEngine:
-    REQUIRED_FIELDS = ["invoice_number", "customer_name", "customer_email"]
+    REQUIRED_FIELDS = ["customer_name", "customer_email"]
 
     def validate(self, draft: InvoiceDraft) -> List[str]:
         missing = []
-        for field in self.REQUIRED_FIELDS:
-            if not getattr(draft, field):
-                missing.append(field)
-
-        if not draft.items:
-            missing.append("items")
-
+        if not draft.customer_name: missing.append("customer_name")
+        if not draft.customer_email: missing.append("customer_email")
+        if not draft.items: missing.append("items")
         return missing
 
-    def suggestions(self, missing_fields: List[str]) -> List[str]:
-        hints = {
-            "invoice_number": "Add `invoice number: INV-2026-001`.",
-            "customer_name": "Add `customer: Jane Doe`.",
-            "customer_email": "Add `email: jane@store.com`.",
-            "items": "Add line items in `qty x item @ price` format (example: `2x T-shirt @ 799`).",
-        }
-        return [hints[item] for item in missing_fields if item in hints]
+    def suggestions(self, draft: InvoiceDraft) -> List[str]:
+        tips = []
+        if not draft.customer_name: tips.append("What is the customer's name?")
+        if not draft.customer_email: tips.append("Could you provide their email address?")
+        if not draft.customer_gst: tips.append("Do you have a GST number to include? (Optional but recommended)")
+        if not draft.discount_code: tips.append("Do you have any discount codes or offers to apply?")
+        return tips
 
     def render_invoice(self, draft: InvoiceDraft) -> str:
-        subtotal = round(sum(item.line_total for item in draft.items), 2)
-        tax = round(subtotal * (draft.tax_percent / 100), 2)
-        total = round(subtotal + tax + draft.shipping_fee - draft.discount, 2)
-
+        data = draft.to_dict()
         lines = [
-            f"🧾 **Invoice {draft.invoice_number}**",
+            f"🧾 **Invoice {draft.invoice_number or 'DRAFT'}**",
             f"**Customer:** {draft.customer_name}",
             f"**Email:** {draft.customer_email}",
-            f"**Invoice Date:** {draft.invoice_date}",
-            f"**Due Date:** {draft.due_date}",
-            "",
-            "**Line Items**",
+            f"**GSTIN:** {draft.customer_gst or 'Not Provided'}",
+            f"**Date:** {draft.invoice_date}",
+            "", "**Line Items**"
         ]
-
         for item in draft.items:
-            lines.append(
-                f"• {item.name} — {item.quantity:g} × {item.unit_price:.2f} = {item.line_total:.2f} {draft.currency}"
-            )
-
-        lines.extend(
-            [
-                "",
-                f"**Subtotal:** {subtotal:.2f} {draft.currency}",
-                f"**Tax ({draft.tax_percent:g}%):** {tax:.2f} {draft.currency}",
-                f"**Shipping:** {draft.shipping_fee:.2f} {draft.currency}",
-                f"**Discount:** -{draft.discount:.2f} {draft.currency}",
-                f"✅ **Grand Total:** {total:.2f} {draft.currency}",
-            ]
-        )
-
+            lines.append(f"• {item.name} — {item.quantity:g} × {item.unit_price:.2f} = {item.line_total:.2f}")
+        
+        lines.extend([
+            "",
+            f"**Subtotal:** ₹{data['subtotal']:.2f}",
+            f"**GST ({draft.tax_percent:g}%):** ₹{data['tax_amount']:.2f}",
+            f"**Shipping:** ₹{draft.shipping_fee:.2f}",
+            f"**Discount:** -₹{data['discount']:.2f} {f'({draft.discount_code})' if draft.discount_code else ''}",
+            f"✅ **Grand Total:** ₹{data['grand_total']:.2f}"
+        ])
         return "\n".join(lines)
 
-
 class InvoiceAssistantChatbot:
-    """AI-Powered E-Commerce Invoice Assistant."""
-
     def __init__(self):
         self.parser = InvoiceParser()
         self.engine = InvoiceEngine()
-        print("🤖 AI-Powered E-Commerce Invoice Assistant initialized")
+        self.sessions = SessionManager()
+        storage_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "invoices.json")
+        self.storage = InvoiceStorage(storage_path)
 
-    def process_message(self, user_message: str) -> str:
-        message = user_message.lower()
+    def process_message(self, user_message: str, session_id: str = "default") -> Dict[str, Any]:
+        msg = user_message.lower()
+        draft = self.sessions.get_draft(session_id)
 
-        if any(keyword in message for keyword in ["validate", "check fields", "missing fields"]):
-            draft = self.parser.parse(user_message)
-            missing = self.engine.validate(draft)
-            if not missing:
-                return "✅ Your invoice input looks complete and ready for generation."
-            return (
-                "⚠️ Validation result: missing required details -> "
-                + ", ".join(missing)
-                + "\n"
-                + "\n".join(f"• {tip}" for tip in self.engine.suggestions(missing))
-            )
-
-        if any(keyword in message for keyword in ["create invoice", "generate invoice", "invoice"]):
-            draft = self.parser.parse(user_message)
+        # Detect intent to start or continue an invoice
+        is_invoice_talk = any(kw in msg for kw in ["invoice", "bill", "checkout", "to raju", "@", "gmail", "com", "gst"])
+        
+        if is_invoice_talk or draft.items:
+            draft = self.parser.update_draft(draft, user_message)
             missing = self.engine.validate(draft)
 
             if missing:
-                suggestions = "\n".join(f"• {tip}" for tip in self.engine.suggestions(missing))
-                return (
-                    "I found missing fields in your invoice request:\n"
-                    f"• {', '.join(missing)}\n\n"
-                    "Suggested additions:\n"
-                    f"{suggestions}"
+                suggestions = self.engine.suggestions(draft)
+                text = (
+                    "I've updated your draft, but I'm still missing some details:\n\n"
+                    + "\n".join(f"• {tip}" for tip in suggestions)
+                    + "\n\nJust type them in and I'll update the bill!"
                 )
+                return {"text": text, "type": "warning"}
 
-            return self.engine.render_invoice(draft)
+            # If all required fields are here, and it's the first time we have them all, or they say "confirm"
+            if not missing:
+                # auto-generate or ask to confirm? 
+                # The user wants "python script should be run to create an invoice for that"
+                # so we generate and save.
+                invoice_id = self.storage.save_invoice(draft)
+                text = "### 🚀 Invoice Generated Successfully!\n\n" + self.engine.render_invoice(draft)
+                self.sessions.clear_session(session_id) # Reset for next one
+                return {"text": text, "type": "invoice", "saved_invoice_id": invoice_id}
 
-        return (
-            "Hi! I'm your **AI-Powered E-Commerce Invoice Assistant**.\n\n"
-            "I can help you:\n"
-            "• Generate invoices from plain-text input\n"
-            "• Validate missing fields\n"
-            "• Suggest what to add before finalizing\n\n"
-            "Try:\n"
-            "`Generate invoice: invoice number: INV-1001, customer: Alex, email: alex@shop.com, 2x Sneakers @ 2499, tax: 18, shipping: 99`"
-        )
+        # Fallback to general assistant
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(f"User: {user_message}. Act as UrbanStyle Shopping Assistant. If they want to bill or checkout, guide them.")
+            return {"text": response.text, "type": "info"}
+        except:
+            return {"text": "How can I help you shop today?", "type": "info"}
 
-
-# Backward compatibility for existing imports
 BizzHubChatbot = InvoiceAssistantChatbot

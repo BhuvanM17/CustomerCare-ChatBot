@@ -27,7 +27,12 @@ def chat():
         return jsonify({"error": "Message is required"}), 400
 
     try:
-        response_text = chatbot.process_message(user_message)
-        return jsonify({"response": response_text, "status": "success"})
+        response = chatbot.process_message(user_message)
+        return jsonify({
+            "response": response["text"],
+            "type": response.get("type", "info"),
+            "saved_invoice_id": response.get("saved_invoice_id"),
+            "status": "success"
+        })
     except Exception as error:
         return jsonify({"error": "Internal server error", "details": str(error)}), 500
