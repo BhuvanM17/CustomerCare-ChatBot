@@ -1,5 +1,2 @@
 flask
 flask-cors
-openai 
-sentence-transformers 
-PyPDF2
