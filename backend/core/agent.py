@@ -82,7 +82,7 @@ class InvoiceStorage:
         return draft.invoice_id
 
 class InvoiceParser:
-    def __init__(self, model_name="gemini-2.5-pro"):
+    def __init__(self, model_name="gemini-2.5-flash"):
         self.model = genai.GenerativeModel(model_name)
 
     def update_draft(self, draft: InvoiceDraft, text: str) -> InvoiceDraft:
