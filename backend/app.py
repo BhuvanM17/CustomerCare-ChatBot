@@ -92,8 +92,12 @@ def stream_chat():
                 response = chatbot.process_message(user_message, session_id)
 
                 # Stream the response in chunks
-                full_response = response["response"] if isinstance(
-                    response, dict) else str(response)
+                if isinstance(response, dict):
+                    full_response = response.get("response", str(response))
+                else:
+                    # If response is not a dict, create a proper response format
+                    full_response = str(response)
+                    response = {"response": full_response, "type": "info"}
 
                 # Simulate streaming by sending response in chunks
                 chunk_size = 10  # characters per chunk
@@ -106,7 +110,7 @@ def stream_chat():
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-        return Response(generate(), mimetype='text/plain')
+        return Response(generate(), mimetype='text/event-stream')
 
     except Exception as e:
         print(f"Error processing stream message: {e}")

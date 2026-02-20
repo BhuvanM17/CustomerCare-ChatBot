@@ -43,6 +43,17 @@ const App = () => {
     setInput('');
     setIsTyping(true);
 
+    // Create a temporary bot message for streaming
+    const botMessageId = Date.now();
+    const initialBotMessage = {
+      id: botMessageId,
+      text: '',
+      sender: 'bot',
+      type: 'info',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setMessages(prev => [...prev, initialBotMessage]);
+    
     try {
       // Use streaming endpoint
       const response = await fetch('/api/stream-chat', {
@@ -60,17 +71,6 @@ const App = () => {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      
-      // Create a temporary bot message for streaming
-      const botMessageId = Date.now();
-      const initialBotMessage = {
-        id: botMessageId,
-        text: '',
-        sender: 'bot',
-        type: 'info',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages(prev => [...prev, initialBotMessage]);
       
       let streamedText = '';
       let completeResponse = null;
@@ -124,15 +124,53 @@ const App = () => {
       }
       
     } catch (error) {
-      setIsTyping(false);
-      // Update the temporary message with error
-      setMessages(prev => 
-        prev.map(msg => 
-          msg.id === botMessageId 
-            ? { ...msg, text: '⚠️ Server connection failed. Is the backend running?', type: 'error' } 
-            : msg
-        )
-      );
+      console.error('Streaming failed, falling back to regular API:', error);
+      try {
+        // Fallback to regular API if streaming fails
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: messageText }),
+        });
+
+        const data = await response.json();
+        setIsTyping(false);
+
+        if (data.error) {
+          // Update the temporary message with error
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === botMessageId 
+                ? { ...msg, text: '⚠️ Sorry, I encountered an error. Please try again.', type: 'error' } 
+                : msg
+            )
+          );
+        } else {
+          // Update the temporary message with the response
+          setMessages(prev => 
+            prev.map(msg => 
+              msg.id === botMessageId 
+                ? { 
+                    ...msg, 
+                    text: data.response, 
+                    type: data.type, 
+                    invoiceId: data.saved_invoice_id
+                  } 
+                : msg
+            )
+          );
+        }
+      } catch (fallbackError) {
+        setIsTyping(false);
+        // Update the temporary message with error
+        setMessages(prev => 
+          prev.map(msg => 
+            msg.id === botMessageId 
+              ? { ...msg, text: '⚠️ Server connection failed. Is the backend running?', type: 'error' } 
+              : msg
+          )
+        );
+      }
     }
   };
 

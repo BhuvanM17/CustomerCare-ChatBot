@@ -200,6 +200,16 @@ class InvoiceStorage:
 
         return draft.invoice_id
 
+    def list_invoices(self):
+        return self._load_invoices()
+
+    def get_invoice(self, invoice_id):
+        invoices = self._load_invoices()
+        for invoice in invoices:
+            if invoice.get('invoice_id') == invoice_id or (invoice.get('invoice_number') and invoice.get('invoice_number') == invoice_id):
+                return invoice
+        return None
+
 
 class InvoiceParser:
     def __init__(self, session_manager, model_name="gemini-2.5-flash"):

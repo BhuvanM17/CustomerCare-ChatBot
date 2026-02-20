@@ -77,8 +77,7 @@ CustomerCare-ChatBot/
 │   │   ├── llm_manager.py  # Multi-model management
 │   │   └── currency_converter.py # Currency conversion
 │   ├── scripts/
-│   │   ├── create_pdf.py   # Original PDF script
-│   │   └── generate_invoice_pdf.py # Enhanced PDF generation
+│   │   └── generate_invoice_pdf.py # Professional invoice PDF generation
 │   ├── app.py
 │   └── requirements.txt
 ├── frontend/               # Web chat interface
