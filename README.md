@@ -58,8 +58,6 @@ If you see `404: NOT_FOUND`, make sure:
 2. Your Vercel **Root Directory** is set to the repository root (`CustomerCare-ChatBot`).
 3. You redeploy after pulling the latest commit (rewrites are required for `/` and `/api/*`).
 
-If you saw `Function Runtimes must have a valid version`, this repo now uses Vercel `builds/routes` instead of `functions.runtime` to avoid that error.
-
 This repo now routes:
 - `/` → `frontend/index.html`
 - `/<asset>` → `frontend/<asset>`
